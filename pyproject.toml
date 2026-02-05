@@ -1,0 +1,33 @@
+[project]
+name = "clientify"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "altescy", email = "me@altescy.jp" }
+]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+clientify = "clientify.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.9.29,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "aiohttp>=3.13.3",
+    "httpx>=0.28.1",
+    "pyright>=1.1.408",
+    "pytest>=9.0.2",
+    "requests>=2.32.5",
+    "ruff>=0.15.0",
+]
+
+[tool.pyright]
+pythonVersion = "3.14"
+
+[tool.ruff]
+line-length = 120
