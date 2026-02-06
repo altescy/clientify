@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 from ..ir import SchemaIR
 from ..openapi import SchemaObject
-from .profile import GenerationProfile
 from .emitter import TypeEmitter
+from .profile import GenerationProfile
 
 
 @dataclass

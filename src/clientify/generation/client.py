@@ -5,8 +5,8 @@ from typing import cast
 
 from ..ir import MediaTypeIR, OperationIR, ParameterIR, RequestBodyIR, ResponseIR
 from ..openapi import SchemaObject
-from .profile import GenerationProfile
 from .emitter import TypeEmitter
+from .profile import GenerationProfile
 
 
 @dataclass
@@ -39,8 +39,6 @@ def generate_client(
     ctx.typing_imports.add("overload")
     ctx.typing_imports.add("cast")
     ctx.typing_imports.add("Protocol")
-    ctx.typing_imports.add("Iterator")
-    ctx.typing_imports.add("AsyncIterator")
     ctx.typing_imports.add("Literal")
     if not profile.use_pep604:
         ctx.typing_imports.add("Union")
@@ -76,8 +74,7 @@ def generate_client(
 
     uses_stream = _uses_streaming(operations)
     if uses_stream:
-        ctx.typing_imports.add("AsyncIterator")
-        ctx.typing_imports.add("Iterator")
+        pass
 
     lines.extend(_emit_response_aliases(operations, ctx))
     lines.extend(_emit_expected_statuses_map(operations))
