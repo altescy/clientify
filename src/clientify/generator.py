@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from os import PathLike
 from pathlib import Path
 
 from .generation import GenerationProfile, generate_client, generate_models, generate_types
@@ -10,7 +11,7 @@ from .ir import IRDocument
 @dataclass(frozen=True)
 class PackageSpec:
     package_name: str
-    output_dir: Path
+    output_dir: str | PathLike[str]
 
 
 def generate_package(
@@ -18,7 +19,8 @@ def generate_package(
     ir: IRDocument,
     profile: GenerationProfile,
 ) -> Path:
-    package_dir = spec.output_dir / spec.package_name
+    output_dir = Path(spec.output_dir)
+    package_dir = output_dir / spec.package_name
     package_dir.mkdir(parents=True, exist_ok=True)
 
     models_code = generate_models(ir.schemas, profile).code

@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 
 from clientify.errors import SpecError
-from clientify.loader import RefResolver, load_openapi, resolve_refs
+from clientify.loader import RefResolver, _is_url, load_openapi, resolve_refs
 from clientify.openapi import OpenAPIDocument
 
 
@@ -38,6 +39,67 @@ class TestLoadOpenAPI:
         loaded = load_openapi(path)
         info = loaded.get("info", {})
         assert info.get("title") == "t"
+
+
+class TestLoadFromURL:
+    """Tests for loading OpenAPI specs from URLs."""
+
+    def test_is_url_detects_http(self) -> None:
+        assert _is_url("http://example.com/spec.json") is True
+        assert _is_url("https://example.com/spec.yaml") is True
+        assert _is_url("./local/spec.json") is False
+        assert _is_url("/absolute/path/spec.yaml") is False
+        assert _is_url("spec.json") is False
+
+    def test_loads_json_from_url(self) -> None:
+        data = {"openapi": "3.0.3", "info": {"title": "API", "version": "1"}, "paths": {}}
+        json_content = json.dumps(data)
+
+        with patch("clientify.loader._fetch_url", return_value=json_content):
+            loaded = load_openapi("https://example.com/openapi.json")
+
+        assert loaded.get("openapi") == "3.0.3"
+        assert cast(dict[str, object], loaded.get("info", {})).get("title") == "API"
+
+    def test_loads_yaml_from_url(self) -> None:
+        yaml = pytest.importorskip("yaml")
+        data = {"openapi": "3.0.3", "info": {"title": "YAML API", "version": "1"}, "paths": {}}
+        yaml_content = yaml.safe_dump(data)
+
+        with patch("clientify.loader._fetch_url", return_value=yaml_content):
+            loaded = load_openapi("https://example.com/openapi.yaml")
+
+        assert loaded.get("openapi") == "3.0.3"
+        assert cast(dict[str, object], loaded.get("info", {})).get("title") == "YAML API"
+
+    def test_loads_yml_extension_from_url(self) -> None:
+        yaml = pytest.importorskip("yaml")
+        data = {"openapi": "3.0.3", "info": {"title": "YML API", "version": "1"}, "paths": {}}
+        yaml_content = yaml.safe_dump(data)
+
+        with patch("clientify.loader._fetch_url", return_value=yaml_content):
+            loaded = load_openapi("https://example.com/api/spec.yml")
+
+        assert loaded.get("openapi") == "3.0.3"
+
+    def test_url_without_extension_tries_json_first(self) -> None:
+        data = {"openapi": "3.0.3", "info": {"title": "No Ext", "version": "1"}, "paths": {}}
+        json_content = json.dumps(data)
+
+        with patch("clientify.loader._fetch_url", return_value=json_content):
+            loaded = load_openapi("https://example.com/openapi")
+
+        assert loaded.get("openapi") == "3.0.3"
+
+    def test_url_fetch_failure_raises_spec_error(self) -> None:
+        with patch("clientify.loader._fetch_url", side_effect=SpecError("Failed to fetch URL: test")):
+            with pytest.raises(SpecError, match="Failed to fetch URL"):
+                load_openapi("https://example.com/spec.json")
+
+    def test_url_returns_non_object_raises_spec_error(self) -> None:
+        with patch("clientify.loader._fetch_url", return_value='"just a string"'):
+            with pytest.raises(SpecError, match="must be an object"):
+                load_openapi("https://example.com/spec.json")
 
 
 class TestResolveRefs:
