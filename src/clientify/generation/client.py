@@ -30,12 +30,12 @@ def generate_client(
 ) -> ClientOutput:
     emitter = TypeEmitter(profile)
     ctx = ClientContext(profile=profile, emitter=emitter)
+    method_counts = _method_counts(operations)
     lines: list[str] = []
     lines.append("# ruff: noqa: F401")
     if profile.use_future_annotations:
         lines.append("from __future__ import annotations")
 
-    ctx.typing_imports.add("TYPE_CHECKING")
     ctx.typing_imports.add("overload")
     ctx.typing_imports.add("cast")
     ctx.typing_imports.add("Protocol")
@@ -51,7 +51,7 @@ def generate_client(
     lines.append("import inspect")
     lines.append("import json")
     lines.append("from urllib.parse import urlencode")
-    lines.append("from collections.abc import AsyncIterator, Iterable, Iterator, Mapping")
+    lines.append("from collections.abc import AsyncIterable, AsyncIterator, Iterable, Iterator, Mapping")
     if schemas:
         lines.append("from .models import (")
         for name in sorted(set(schemas)):
@@ -62,7 +62,7 @@ def generate_client(
 
     lines.append("RequestUrl = str")
     lines.append("RequestHeaders = Mapping[str, str] | None")
-    lines.append("RequestContent = str | bytes | Iterable[bytes] | None")
+    lines.append("RequestContent = str | bytes | Iterable[bytes] | AsyncIterable[bytes]")
     lines.append("TimeoutType = float | None")
     lines.append("")
 
@@ -86,10 +86,14 @@ def generate_client(
         lines.append("    pass")
     else:
         lines.extend(_emit_client_init(sync=True))
-        lines.append("    if TYPE_CHECKING:")
-        for operation in operations:
-            lines.extend(_indent_lines(_emit_sync_overload(operation, ctx)))
-        lines.extend(_emit_method_impls(operations, ctx, sync=True))
+        lines.extend(_emit_request_impl(sync=True))
+        for method, method_ops in _group_operations(operations).items():
+            if method_counts.get(method, 0) == 1:
+                lines.extend(_emit_typed_method_impl(method_ops[0], ctx, sync=True))
+            else:
+                for operation in method_ops:
+                    lines.extend(_emit_sync_overload(operation, ctx))
+                lines.extend(_emit_method_call(method, sync=True))
     lines.append("")
 
     lines.append("class AsyncClient:")
@@ -97,10 +101,14 @@ def generate_client(
         lines.append("    pass")
     else:
         lines.extend(_emit_client_init(sync=False))
-        lines.append("    if TYPE_CHECKING:")
-        for operation in operations:
-            lines.extend(_indent_lines(_emit_async_overload(operation, ctx)))
-        lines.extend(_emit_method_impls(operations, ctx, sync=False))
+        lines.extend(_emit_request_impl(sync=False))
+        for method, method_ops in _group_operations(operations).items():
+            if method_counts.get(method, 0) == 1:
+                lines.extend(_emit_typed_method_impl(method_ops[0], ctx, sync=False))
+            else:
+                for operation in method_ops:
+                    lines.extend(_emit_async_overload(operation, ctx))
+                lines.extend(_emit_method_call(method, sync=False))
     lines.append("")
 
     lines.extend(_emit_create_helper(ctx))
@@ -122,28 +130,17 @@ def generate_client(
     return ClientOutput(code="\n".join(lines).rstrip() + "\n")
 
 
-def _emit_sync_overload(operation: OperationIR, ctx: ClientContext) -> list[str]:
-    op_name = _operation_name(operation.method, operation.path)
-    params_type = f"{op_name}Params"
-    url_literal = f"Literal[{operation.path!r}]"
-    params_annotation = _optional_type(params_type, ctx.profile)
-    response_alias = _operation_response_alias(operation, sync=True)
-    body_annotation = _request_body_annotation(operation, ctx)
-    content_type_annotation = _request_content_type_annotation(operation, ctx)
-    expected_annotation = _expected_statuses_annotation()
-    body_part, content_type_part = _request_param_parts(
-        operation.request_body,
-        body_annotation,
-        content_type_annotation,
-        ctx.profile,
+def _emit_sync_overload(
+    operation: OperationIR,
+    ctx: ClientContext,
+) -> list[str]:
+    signature, response_alias = _build_method_signature(
+        operation,
+        ctx,
+        literal_url=True,
+        sync=True,
+        optional_default="...",
     )
-    param_parts = [f"url: {url_literal}", "*", f"params: {params_annotation} = ..."]
-    param_parts.append(body_part)
-    param_parts.append(content_type_part)
-    param_parts.append(f"expected_statuses: {expected_annotation} = ...")
-    param_parts.append("timeout: float | None = ...")
-
-    signature = ", ".join(param_parts)
     return [
         "    @overload",
         f"    def {operation.method}(self, {signature}) -> {response_alias}:",
@@ -152,12 +149,39 @@ def _emit_sync_overload(operation: OperationIR, ctx: ClientContext) -> list[str]
     ]
 
 
-def _emit_async_overload(operation: OperationIR, ctx: ClientContext) -> list[str]:
+def _emit_async_overload(
+    operation: OperationIR,
+    ctx: ClientContext,
+) -> list[str]:
+    signature, response_alias = _build_method_signature(
+        operation,
+        ctx,
+        literal_url=True,
+        sync=False,
+        optional_default="...",
+    )
+    return [
+        "    @overload",
+        f"    async def {operation.method}(self, {signature}) -> {response_alias}:",
+        "        ...",
+        "",
+    ]
+
+
+def _build_method_signature(
+    operation: OperationIR,
+    ctx: ClientContext,
+    literal_url: bool,
+    sync: bool,
+    optional_default: str,
+) -> tuple[str, str]:
     op_name = _operation_name(operation.method, operation.path)
     params_type = f"{op_name}Params"
-    url_literal = f"Literal[{operation.path!r}]"
+    url_part = (
+        f"Literal[{operation.path!r}]" if literal_url else "str"
+    )
     params_annotation = _optional_type(params_type, ctx.profile)
-    response_alias = _operation_response_alias(operation, sync=False)
+    response_alias = _operation_response_alias(operation, sync=sync)
     body_annotation = _request_body_annotation(operation, ctx)
     content_type_annotation = _request_content_type_annotation(operation, ctx)
     expected_annotation = _expected_statuses_annotation()
@@ -166,18 +190,65 @@ def _emit_async_overload(operation: OperationIR, ctx: ClientContext) -> list[str
         body_annotation,
         content_type_annotation,
         ctx.profile,
+        optional_default,
     )
-    param_parts = [f"url: {url_literal}", "*", f"params: {params_annotation} = ..."]
+    param_parts = [
+        f"url: {url_part}",
+        "*",
+        f"params: {params_annotation} = {optional_default}",
+    ]
     param_parts.append(body_part)
     param_parts.append(content_type_part)
-    param_parts.append(f"expected_statuses: {expected_annotation} = ...")
-    param_parts.append("timeout: float | None = ...")
-
+    param_parts.append(f"expected_statuses: {expected_annotation} = {optional_default}")
+    param_parts.append(f"timeout: float | None = {optional_default}")
     signature = ", ".join(param_parts)
+    return signature, response_alias
+
+
+def _emit_typed_method_impl(
+    operation: OperationIR,
+    ctx: ClientContext,
+    sync: bool,
+) -> list[str]:
+    signature, response_alias = _build_method_signature(
+        operation,
+        ctx,
+        literal_url=True,
+        sync=sync,
+        optional_default="None",
+    )
+    method = operation.method
+    if sync:
+        return [
+            f"    def {method}(self, {signature}) -> {response_alias}:",
+            "        return cast(",
+            f"            {response_alias},",
+            "            self.request(",
+            f"            '{method.upper()}',",
+            "            url,",
+            "            params=params,",
+            "            body=body,",
+            "            content_type=content_type,",
+            "            expected_statuses=expected_statuses,",
+            "            timeout=timeout,",
+            "            ),",
+            "        )",
+            "",
+        ]
     return [
-        "    @overload",
-        f"    async def {operation.method}(self, {signature}) -> {response_alias}:",
-        "        ...",
+        f"    async def {method}(self, {signature}) -> {response_alias}:",
+        "        return cast(",
+        f"            {response_alias},",
+        "            await self.request(",
+        f"            '{method.upper()}',",
+        "            url,",
+        "            params=params,",
+        "            body=body,",
+        "            content_type=content_type,",
+        "            expected_statuses=expected_statuses,",
+        "            timeout=timeout,",
+        "            ),",
+        "        )",
         "",
     ]
 
@@ -310,9 +381,10 @@ def _request_param_parts(
     body_annotation: str | None,
     content_type_annotation: str | None,
     profile: GenerationProfile,
+    optional_default: str,
 ) -> tuple[str, str]:
     if request_body is None:
-        return "body: None = ...", "content_type: str | None = ..."
+        return f"body: None = {optional_default}", f"content_type: str | None = {optional_default}"
 
     if body_annotation is None:
         body_type = "None"
@@ -321,13 +393,13 @@ def _request_param_parts(
     else:
         body_type = _ensure_optional(body_annotation, profile)
 
-    body_default = "" if request_body.required else " = ..."
+    body_default = "" if request_body.required else f" = {optional_default}"
     body_part = f"body: {body_type}{body_default}"
 
     if content_type_annotation is None:
-        return body_part, "content_type: str | None = ..."
+        return body_part, f"content_type: str | None = {optional_default}"
 
-    content_default = "" if request_body.required else " = ..."
+    content_default = "" if request_body.required else f" = {optional_default}"
     content_part = f"content_type: {content_type_annotation}{content_default}"
     return body_part, content_part
 
@@ -515,7 +587,7 @@ def _emit_backend_protocols(ctx: ClientContext) -> list[str]:
         "        method: str,",
         "        url: RequestUrl,",
         "        *,",
-        "        content: RequestContent = None,",
+        "        content: RequestContent | None = None,",
         "        headers: RequestHeaders = None,",
         "        timeout: TimeoutType = None,",
         "    ) -> SyncResponse:",
@@ -527,7 +599,7 @@ def _emit_backend_protocols(ctx: ClientContext) -> list[str]:
         "        method: str,",
         "        url: RequestUrl,",
         "        *,",
-        "        content: RequestContent = None,",
+        "        content: RequestContent | None = None,",
         "        headers: RequestHeaders = None,",
         "        timeout: TimeoutType = None,",
         "    ) -> AsyncResponse:",
@@ -584,30 +656,72 @@ def _emit_client_init(sync: bool) -> list[str]:
         '                url = f"{url}?{query}"',
         "        return url",
         "",
-        "    def _encode_body(self, body: object | None, content_type: str | None) -> bytes | None:",
+        "    def _encode_body(",
+        "        self,",
+        "        body: object | None,",
+        "        content_type: str | None,",
+        "    ) -> tuple[bytes | None, str | None]:",
         "        if body is None:",
-        "            return None",
+        "            return None, content_type",
         "        if isinstance(body, bytes):",
-        "            return body",
+        "            return body, content_type",
+        "        if content_type and content_type.startswith('application/x-www-form-urlencoded'):",
+        "            if isinstance(body, Mapping):",
+        "                return urlencode(body, doseq=True).encode('utf-8'), content_type",
+        "            return str(body).encode('utf-8'), content_type",
+        "        if content_type and content_type.startswith('multipart/form-data'):",
+        "            if isinstance(body, Mapping):",
+        "                data, boundary = self._encode_multipart(body)",
+        "                return data, f'{content_type}; boundary={boundary}'",
+        "            return str(body).encode('utf-8'), content_type",
+        "        if content_type and content_type.startswith('application/x-ndjson'):",
+        "            return self._encode_ndjson(body), content_type",
+        "        if content_type and content_type.startswith('application/stream+json'):",
+        "            return self._encode_ndjson(body), content_type",
+        "        if content_type and (content_type.startswith('application/json') or content_type.endswith('+json')):",
+        "            return json.dumps(body).encode('utf-8'), content_type",
+        "        if content_type and content_type.startswith('text/csv'):",
+        "            return str(body).encode('utf-8'), content_type",
         "        if content_type and content_type.startswith('text/plain'):",
-        "            return str(body).encode('utf-8')",
-        "        if content_type and content_type.startswith('application/json'):",
-        "            return json.dumps(body).encode('utf-8')",
-        "        return json.dumps(body).encode('utf-8')",
+        "            return str(body).encode('utf-8'), content_type",
+        "        return json.dumps(body).encode('utf-8'), content_type",
         "",
         "    def _decode_body(self, content_type: str, data: bytes) -> object:",
         "        if not content_type:",
         "            return data",
-        "        if content_type.startswith('application/json'):",
+        "        if content_type.startswith('application/x-ndjson'):",
+        "            return [json.loads(line) for line in data.splitlines() if line]",
+        "        if content_type.startswith('application/stream+json'):",
+        "            return [json.loads(line) for line in data.splitlines() if line]",
+        "        if content_type.startswith('application/json') or content_type.endswith('+json'):",
         "            try:",
         "                return json.loads(data)",
         "            except json.JSONDecodeError as exc:",
         "                raise DecodeError('Failed to decode JSON') from exc",
+        "        if content_type.startswith('application/x-www-form-urlencoded'):",
+        "            return data.decode('utf-8')",
+        "        if content_type.startswith('text/csv'):",
+        "            return data.decode('utf-8')",
         "        if content_type.startswith('text/plain'):",
         "            return data.decode('utf-8')",
-        "        if content_type.startswith('text/event-stream'):",
-        "            return iter(data.decode('utf-8').splitlines())",
         "        return data",
+        "",
+        "    def _encode_ndjson(self, body: object) -> bytes:",
+        "        if isinstance(body, Iterable) and not isinstance(body, (str, bytes, bytearray)):",
+        "            lines = [json.dumps(item) for item in body]",
+        "            return ('\\n'.join(lines) + '\\n').encode('utf-8')",
+        "        return json.dumps(body).encode('utf-8')",
+        "",
+        "    def _encode_multipart(self, body: Mapping[str, object]) -> tuple[bytes, str]:",
+        "        boundary = 'clientify-boundary'",
+        "        parts: list[bytes] = []",
+        "        for key, value in body.items():",
+        "            parts.append(f'--{boundary}'.encode('utf-8'))",
+        "            parts.append(f'Content-Disposition: form-data; name=\"{key}\"'.encode('utf-8'))",
+        "            parts.append(b'')",
+        "            parts.append(str(value).encode('utf-8'))",
+        "        parts.append(f'--{boundary}--'.encode('utf-8'))",
+        "        return b'\\r\\n'.join(parts), boundary",
         "",
         "    def _iter_event_stream_lines(self, response: SyncResponse) -> Iterator[str]:",
         "        try:",
@@ -640,228 +754,211 @@ def _emit_client_init(sync: bool) -> list[str]:
     ]
 
 
-def _emit_method_impls(
-    operations: list[OperationIR],
-    ctx: ClientContext,
-    sync: bool,
-) -> list[str]:
-    methods = sorted({operation.method for operation in operations})
-    lines: list[str] = []
+def _emit_request_impl(sync: bool) -> list[str]:
     if sync:
-        lines.extend(
-            [
-                "    def request(",
-                "        self,",
-                "        method: str,",
-                "        url: str,",
-                "        *,",
-                "        params: object | None = None,",
-                "        body: object | None = None,",
-                "        content_type: str | None = None,",
-                "        expected_statuses: set[str] | None = None,",
-                "        timeout: float | None = None,",
-                "    ) -> SuccessResponse[object] | ErrorResponse[object]:",
-                "        params_map = params if isinstance(params, Mapping) else {}",
-                "        path_params = params_map.get('path') if params_map else None",
-                "        query_params = params_map.get('query') if params_map else None",
-                "        header_params = params_map.get('header') if params_map else None",
-                "        cookie_params = params_map.get('cookie') if params_map else None",
-                "        headers = dict(self._headers)",
-                "        if header_params:",
-                "            headers.update({str(k): str(v) for k, v in header_params.items()})",
-                "        if cookie_params:",
-                "            cookie_header = '; '.join(",
-                '                f"{key}={value}" for key, value in cookie_params.items()',
-                "            )",
-                "            if cookie_header:",
-                "                if 'cookie' not in {k.lower() for k in headers.keys()}:",
-                "                    headers['Cookie'] = cookie_header",
-                "        if content_type is None:",
-                "            content_types = self._request_content_types.get((method, url))",
-                "            if content_types and len(content_types) == 1:",
-                "                content_type = content_types[0]",
-                "        if content_type:",
-                "            headers['Content-Type'] = content_type",
-                "        if 'accept' not in {k.lower() for k in headers.keys()}:",
-                "            accept_types = self._accept_types.get((method, url))",
-                "            if accept_types:",
-                "                headers['Accept'] = ', '.join(accept_types)",
-                "        url = self._build_url(url, path_params, query_params)",
-                "        payload = self._encode_body(body, content_type)",
-                "        try:",
-                "            backend_response = self._backend.request(",
-                "                method=method,",
-                "                url=url,",
-                "                headers=headers,",
-                "                content=payload,",
-                "                timeout=timeout,",
-                "            )",
-                "        except Exception as exc:",
-                "            backend_name = type(self._backend).__name__",
-                "            raise TransportError(f'Backend request failed: {backend_name}') from exc",
-                "        response_headers = getattr(backend_response, 'headers', None) or {}",
-                "        content_type_header = response_headers.get('content-type', '')",
-                "        if content_type_header.startswith('text/event-stream'):",
-                "            body_value = self._iter_event_stream_lines(backend_response)",
-                "        else:",
-                "            data = b''.join(backend_response.iter_bytes())",
-                "            body_value = self._decode_body(content_type_header, data)",
-                "        if expected_statuses is None:",
-                "            expected_statuses = self._expected_statuses.get((method, url))",
-                "        if 200 <= backend_response.status_code < 300:",
-                "            api_response = SuccessResponse[object]()",
-                "            api_response.status = backend_response.status_code",
-                "            api_response.headers = response_headers",
-                "            api_response.body = body_value",
-                "            return api_response",
-                "        if self._raise_on_unexpected_status:",
-                "            expected = expected_statuses or set()",
-                "            if expected and str(backend_response.status_code) not in expected:",
-                "                raise ClientError(f'Unexpected status: {backend_response.status_code}')",
-                "        api_response = ErrorResponse[object]()",
-                "        api_response.status = backend_response.status_code",
-                "        api_response.headers = response_headers",
-                "        api_response.body = body_value",
-                "        return api_response",
-                "",
-            ]
-        )
-    else:
-        lines.extend(
-            [
-                "    async def request(",
-                "        self,",
-                "        method: str,",
-                "        url: str,",
-                "        *,",
-                "        params: object | None = None,",
-                "        body: object | None = None,",
-                "        content_type: str | None = None,",
-                "        expected_statuses: set[str] | None = None,",
-                "        timeout: float | None = None,",
-                "    ) -> SuccessResponse[object] | ErrorResponse[object]:",
-                "        params_map = params if isinstance(params, Mapping) else {}",
-                "        path_params = params_map.get('path') if params_map else None",
-                "        query_params = params_map.get('query') if params_map else None",
-                "        header_params = params_map.get('header') if params_map else None",
-                "        cookie_params = params_map.get('cookie') if params_map else None",
-                "        headers = dict(self._headers)",
-                "        if header_params:",
-                "            headers.update({str(k): str(v) for k, v in header_params.items()})",
-                "        if cookie_params:",
-                "            cookie_header = '; '.join(",
-                '                f"{key}={value}" for key, value in cookie_params.items()',
-                "            )",
-                "            if cookie_header:",
-                "                if 'cookie' not in {k.lower() for k in headers.keys()}:",
-                "                    headers['Cookie'] = cookie_header",
-                "        if content_type is None:",
-                "            content_types = self._request_content_types.get((method, url))",
-                "            if content_types and len(content_types) == 1:",
-                "                content_type = content_types[0]",
-                "        if content_type:",
-                "            headers['Content-Type'] = content_type",
-                "        if 'accept' not in {k.lower() for k in headers.keys()}:",
-                "            accept_types = self._accept_types.get((method, url))",
-                "            if accept_types:",
-                "                headers['Accept'] = ', '.join(accept_types)",
-                "        url = self._build_url(url, path_params, query_params)",
-                "        payload = self._encode_body(body, content_type)",
-                "        try:",
-                "            backend_response = await self._backend.request(",
-                "                method=method,",
-                "                url=url,",
-                "                headers=headers,",
-                "                content=payload,",
-                "                timeout=timeout,",
-                "            )",
-                "        except Exception as exc:",
-                "            backend_name = type(self._backend).__name__",
-                "            raise TransportError(f'Backend request failed: {backend_name}') from exc",
-                "        response_headers = getattr(backend_response, 'headers', None) or {}",
-                "        content_type_header = response_headers.get('content-type', '')",
-                "        if content_type_header.startswith('text/event-stream'):",
-                "            body_value = self._aiter_event_stream_lines(backend_response)",
-                "        else:",
-                "            chunks: list[bytes] = []",
-                "            async for chunk in backend_response.aiter_bytes():",
-                "                chunks.append(chunk)",
-                "            data = b''.join(chunks)",
-                "            body_value = self._decode_body(content_type_header, data)",
-                "        if expected_statuses is None:",
-                "            expected_statuses = self._expected_statuses.get((method, url))",
-                "        if 200 <= backend_response.status_code < 300:",
-                "            api_response = SuccessResponse[object]()",
-                "            api_response.status = backend_response.status_code",
-                "            api_response.headers = response_headers",
-                "            api_response.body = body_value",
-                "            return api_response",
-                "        if self._raise_on_unexpected_status:",
-                "            expected = expected_statuses or set()",
-                "            if expected and str(backend_response.status_code) not in expected:",
-                "                raise ClientError(f'Unexpected status: {backend_response.status_code}')",
-                "        api_response = ErrorResponse[object]()",
-                "        api_response.status = backend_response.status_code",
-                "        api_response.headers = response_headers",
-                "        api_response.body = body_value",
-                "        return api_response",
-                "",
-            ]
-        )
+        return [
+            "    def request(",
+            "        self,",
+            "        method: str,",
+            "        url: str,",
+            "        *,",
+            "        params: object | None = None,",
+            "        body: object | None = None,",
+            "        content_type: str | None = None,",
+            "        expected_statuses: set[str] | None = None,",
+            "        timeout: float | None = None,",
+            "    ) -> SuccessResponse[object] | ErrorResponse[object]:",
+            "        params_map = params if isinstance(params, Mapping) else {}",
+            "        path_params = params_map.get('path') if params_map else None",
+            "        query_params = params_map.get('query') if params_map else None",
+            "        header_params = params_map.get('header') if params_map else None",
+            "        cookie_params = params_map.get('cookie') if params_map else None",
+            "        headers = dict(self._headers)",
+            "        if header_params:",
+            "            headers.update({str(k): str(v) for k, v in header_params.items()})",
+            "        if cookie_params:",
+            "            cookie_header = '; '.join(",
+            '                f"{key}={value}" for key, value in cookie_params.items()',
+            "            )",
+            "            if cookie_header:",
+            "                if 'cookie' not in {k.lower() for k in headers.keys()}:",
+            "                    headers['Cookie'] = cookie_header",
+            "        if content_type is None:",
+            "            content_types = self._request_content_types.get((method, url))",
+            "            if content_types and len(content_types) == 1:",
+            "                content_type = content_types[0]",
+            "        if content_type:",
+            "            headers['Content-Type'] = content_type",
+            "        if 'accept' not in {k.lower() for k in headers.keys()}:",
+            "            accept_types = self._accept_types.get((method, url))",
+            "            if accept_types:",
+            "                headers['Accept'] = ', '.join(accept_types)",
+            "        url = self._build_url(url, path_params, query_params)",
+            "        payload, content_type = self._encode_body(body, content_type)",
+            "        try:",
+            "            backend_response = self._backend.request(",
+            "                method=method,",
+            "                url=url,",
+            "                headers=headers,",
+            "                content=payload,",
+            "                timeout=timeout,",
+            "            )",
+            "        except Exception as exc:",
+            "            backend_name = type(self._backend).__name__",
+            "            raise TransportError(f'Backend request failed: {backend_name}') from exc",
+            "        response_headers = getattr(backend_response, 'headers', None) or {}",
+            "        content_type_header = response_headers.get('content-type', '')",
+            "        if content_type_header.startswith('text/event-stream'):",
+            "            body_value = self._iter_event_stream_lines(backend_response)",
+            "        else:",
+            "            data = b''.join(backend_response.iter_bytes())",
+            "            body_value = self._decode_body(content_type_header, data)",
+            "        if expected_statuses is None:",
+            "            expected_statuses = self._expected_statuses.get((method, url))",
+            "        if 200 <= backend_response.status_code < 300:",
+            "            api_response = SuccessResponse[object]()",
+            "            api_response.status = backend_response.status_code",
+            "            api_response.headers = response_headers",
+            "            api_response.body = body_value",
+            "            return api_response",
+            "        if self._raise_on_unexpected_status:",
+            "            expected = expected_statuses or set()",
+            "            if expected and str(backend_response.status_code) not in expected:",
+            "                raise ClientError(f'Unexpected status: {backend_response.status_code}')",
+            "        api_response = ErrorResponse[object]()",
+            "        api_response.status = backend_response.status_code",
+            "        api_response.headers = response_headers",
+            "        api_response.body = body_value",
+            "        return api_response",
+            "",
+        ]
+    return [
+        "    async def request(",
+        "        self,",
+        "        method: str,",
+        "        url: str,",
+        "        *,",
+        "        params: object | None = None,",
+        "        body: object | None = None,",
+        "        content_type: str | None = None,",
+        "        expected_statuses: set[str] | None = None,",
+        "        timeout: float | None = None,",
+        "    ) -> SuccessResponse[object] | ErrorResponse[object]:",
+        "        params_map = params if isinstance(params, Mapping) else {}",
+        "        path_params = params_map.get('path') if params_map else None",
+        "        query_params = params_map.get('query') if params_map else None",
+        "        header_params = params_map.get('header') if params_map else None",
+        "        cookie_params = params_map.get('cookie') if params_map else None",
+        "        headers = dict(self._headers)",
+        "        if header_params:",
+        "            headers.update({str(k): str(v) for k, v in header_params.items()})",
+        "        if cookie_params:",
+        "            cookie_header = '; '.join(",
+        '                f"{key}={value}" for key, value in cookie_params.items()',
+        "            )",
+        "            if cookie_header:",
+        "                if 'cookie' not in {k.lower() for k in headers.keys()}:",
+        "                    headers['Cookie'] = cookie_header",
+        "        if content_type is None:",
+        "            content_types = self._request_content_types.get((method, url))",
+        "            if content_types and len(content_types) == 1:",
+        "                content_type = content_types[0]",
+        "        if content_type:",
+        "            headers['Content-Type'] = content_type",
+        "        if 'accept' not in {k.lower() for k in headers.keys()}:",
+        "            accept_types = self._accept_types.get((method, url))",
+        "            if accept_types:",
+        "                headers['Accept'] = ', '.join(accept_types)",
+        "        url = self._build_url(url, path_params, query_params)",
+        "        payload, content_type = self._encode_body(body, content_type)",
+        "        try:",
+        "            backend_response = await self._backend.request(",
+        "                method=method,",
+        "                url=url,",
+        "                headers=headers,",
+        "                content=payload,",
+        "                timeout=timeout,",
+        "            )",
+        "        except Exception as exc:",
+        "            backend_name = type(self._backend).__name__",
+        "            raise TransportError(f'Backend request failed: {backend_name}') from exc",
+        "        response_headers = getattr(backend_response, 'headers', None) or {}",
+        "        content_type_header = response_headers.get('content-type', '')",
+        "        if content_type_header.startswith('text/event-stream'):",
+        "            body_value = self._aiter_event_stream_lines(backend_response)",
+        "        else:",
+        "            chunks: list[bytes] = []",
+        "            async for chunk in backend_response.aiter_bytes():",
+        "                chunks.append(chunk)",
+        "            data = b''.join(chunks)",
+        "            body_value = self._decode_body(content_type_header, data)",
+        "        if expected_statuses is None:",
+        "            expected_statuses = self._expected_statuses.get((method, url))",
+        "        if 200 <= backend_response.status_code < 300:",
+        "            api_response = SuccessResponse[object]()",
+        "            api_response.status = backend_response.status_code",
+        "            api_response.headers = response_headers",
+        "            api_response.body = body_value",
+        "            return api_response",
+        "        if self._raise_on_unexpected_status:",
+        "            expected = expected_statuses or set()",
+        "            if expected and str(backend_response.status_code) not in expected:",
+        "                raise ClientError(f'Unexpected status: {backend_response.status_code}')",
+        "        api_response = ErrorResponse[object]()",
+        "        api_response.status = backend_response.status_code",
+        "        api_response.headers = response_headers",
+        "        api_response.body = body_value",
+        "        return api_response",
+        "",
+    ]
 
-    for method in methods:
-        if sync:
-            lines.extend(
-                [
-                    f"    def {method}(",
-                    "        self,",
-                    "        url: str,",
-                    "        *,",
-                    "        params: object | None = None,",
-                    "        body: object | None = None,",
-                    "        content_type: str | None = None,",
-                    "        expected_statuses: set[str] | None = None,",
-                    "        timeout: float | None = None,",
-                    "    ) -> SuccessResponse[object] | ErrorResponse[object]:",
-                    "        return self.request(",
-                    f"            '{method.upper()}',",
-                    "            url,",
-                    "            params=params,",
-                    "            body=body,",
-                    "            content_type=content_type,",
-                    "            expected_statuses=expected_statuses,",
-                    "            timeout=timeout,",
-                    "        )",
-                    "",
-                ]
-            )
-        else:
-            lines.extend(
-                [
-                    f"    async def {method}(",
-                    "        self,",
-                    "        url: str,",
-                    "        *,",
-                    "        params: object | None = None,",
-                    "        body: object | None = None,",
-                    "        content_type: str | None = None,",
-                    "        expected_statuses: set[str] | None = None,",
-                    "        timeout: float | None = None,",
-                    "    ) -> SuccessResponse[object] | ErrorResponse[object]:",
-                    "        return await self.request(",
-                    f"            '{method.upper()}',",
-                    "            url,",
-                    "            params=params,",
-                    "            body=body,",
-                    "            content_type=content_type,",
-                    "            expected_statuses=expected_statuses,",
-                    "            timeout=timeout,",
-                    "        )",
-                    "",
-                ]
-            )
 
-    return lines
+def _emit_method_call(method: str, sync: bool) -> list[str]:
+    if sync:
+        return [
+            f"    def {method}(",
+            "        self,",
+            "        url: str,",
+            "        *,",
+            "        params: object | None = None,",
+            "        body: object | None = None,",
+            "        content_type: str | None = None,",
+            "        expected_statuses: set[str] | None = None,",
+            "        timeout: float | None = None,",
+            "    ) -> SuccessResponse[object] | ErrorResponse[object]:",
+            "        return self.request(",
+            f"            '{method.upper()}',",
+            "            url,",
+            "            params=params,",
+            "            body=body,",
+            "            content_type=content_type,",
+            "            expected_statuses=expected_statuses,",
+            "            timeout=timeout,",
+            "        )",
+            "",
+        ]
+    return [
+        f"    async def {method}(",
+        "        self,",
+        "        url: str,",
+        "        *,",
+        "        params: object | None = None,",
+        "        body: object | None = None,",
+        "        content_type: str | None = None,",
+        "        expected_statuses: set[str] | None = None,",
+        "        timeout: float | None = None,",
+        "    ) -> SuccessResponse[object] | ErrorResponse[object]:",
+        "        return await self.request(",
+        f"            '{method.upper()}',",
+        "            url,",
+        "            params=params,",
+        "            body=body,",
+        "            content_type=content_type,",
+        "            expected_statuses=expected_statuses,",
+        "            timeout=timeout,",
+        "        )",
+        "",
+    ]
 
 
 def _emit_create_helper(ctx: ClientContext) -> list[str]:
@@ -910,10 +1007,6 @@ def _emit_create_helper(ctx: ClientContext) -> list[str]:
     ]
 
 
-def _indent_lines(lines: list[str]) -> list[str]:
-    return [f"    {line}" if line else "" for line in lines]
-
-
 def _import_insert_index(lines: list[str]) -> int:
     for index, line in enumerate(lines):
         if line.startswith("from __future__ import"):
@@ -921,6 +1014,20 @@ def _import_insert_index(lines: list[str]) -> int:
     if lines and lines[0].startswith("# ruff:"):
         return 1
     return 0
+
+
+def _group_operations(operations: list[OperationIR]) -> dict[str, list[OperationIR]]:
+    grouped: dict[str, list[OperationIR]] = {}
+    for operation in operations:
+        grouped.setdefault(operation.method, []).append(operation)
+    return grouped
+
+
+def _method_counts(operations: list[OperationIR]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for operation in operations:
+        counts[operation.method] = counts.get(operation.method, 0) + 1
+    return counts
 
 
 def _uses_streaming(operations: list[OperationIR]) -> bool:
