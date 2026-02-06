@@ -14,8 +14,8 @@ from .loader import load_openapi
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="clientify", description="Generate Python client from OpenAPI spec.")
     parser.add_argument("spec", type=Path, help="Path to OpenAPI spec (JSON/YAML)")
-    parser.add_argument("--package-name", required=True, help="Generated package name")
-    parser.add_argument("--output-dir", type=Path, default=Path("."), help="Output directory")
+    parser.add_argument("-n", "--package-name", required=True, help="Generated package name")
+    parser.add_argument("-o", "--output-dir", type=Path, default=Path("."), help="Output directory")
     parser.add_argument("--python-version", default="3.10", help="Target Python version (e.g. 3.10)")
 
     args = parser.parse_args(argv)
