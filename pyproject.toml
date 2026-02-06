@@ -1,15 +1,54 @@
 [project]
 name = "clientify"
 version = "0.1.0"
-description = "Add your description here"
+description = "Generate type-safe HTTP clients from OpenAPI specifications"
 readme = "README.md"
+license = { text = "MIT" }
 authors = [
     { name = "altescy", email = "me@altescy.jp" }
 ]
+maintainers = [
+    { name = "altescy", email = "me@altescy.jp" }
+]
 requires-python = ">=3.10"
+keywords = [
+    "openapi",
+    "swagger",
+    "client",
+    "code-generator",
+    "http-client",
+    "rest-api",
+    "type-safe",
+    "async",
+    "python",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
 dependencies = [
     "pyyaml>=6.0.3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/altescy/clientify"
+Documentation = "https://github.com/altescy/clientify#readme"
+Repository = "https://github.com/altescy/clientify"
+Issues = "https://github.com/altescy/clientify/issues"
+Changelog = "https://github.com/altescy/clientify/releases"
 
 [project.scripts]
 clientify = "clientify.__main__:main"
@@ -24,13 +63,26 @@ dev = [
     "httpx>=0.28.1",
     "pyright>=1.1.408",
     "pytest>=9.0.2",
+    "pytest-anyio>=0.0.0",
     "pyyaml>=6.0",
     "ruff>=0.15.0",
     "uvicorn>=0.40.0",
 ]
 
 [tool.pyright]
-pythonVersion = "3.14"
+pythonVersion = "3.10"
+exclude = [
+    "build/",
+    "dist/",
+    ".venv/",
+    "__pycache__/",
+    ".uv_build/",
+    "work/"
+]
 
 [tool.ruff]
 line-length = 120
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
