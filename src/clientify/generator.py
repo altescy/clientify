@@ -23,7 +23,7 @@ def generate_package(
 
     models_code = generate_models(ir.schemas, profile).code
     types_code = generate_types(profile).code
-    schema_names = [schema.name for schema in ir.schemas]
+    schema_names = [schema.name for schema in ir.schemas if schema.name != "JsonValue"]
     client_code = generate_client(ir.operations, schema_names, profile).code
 
     (package_dir / "models.py").write_text(models_code, encoding="utf-8")

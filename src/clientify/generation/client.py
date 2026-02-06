@@ -31,9 +31,9 @@ def generate_client(
     emitter = TypeEmitter(profile)
     ctx = ClientContext(profile=profile, emitter=emitter)
     lines: list[str] = []
+    lines.append("# ruff: noqa: F401")
     if profile.use_future_annotations:
         lines.append("from __future__ import annotations")
-    lines.append("# ruff: noqa: F401")
 
     ctx.typing_imports.add("TYPE_CHECKING")
     ctx.typing_imports.add("overload")
@@ -98,15 +98,15 @@ def generate_client(
     typing_imports = sorted(ctx.typing_imports | emitter.imports)
     if ctx.uses_iterator:
         typing_imports.append("Iterator")
+    insert_at = _import_insert_index(lines)
     if ctx.typing_extensions_imports:
-        insert_at = 1 if lines and lines[0].startswith("from __future__") else 0
         lines.insert(
             insert_at,
             f"from typing_extensions import {', '.join(sorted(ctx.typing_extensions_imports))}",
         )
+        insert_at += 1
 
     if typing_imports:
-        insert_at = 1 if lines and lines[0].startswith("from __future__") else 0
         lines.insert(insert_at, f"from typing import {', '.join(sorted(set(typing_imports)))}")
 
     return ClientOutput(code="\n".join(lines).rstrip() + "\n")
@@ -118,20 +118,25 @@ def _emit_sync_overload(operation: OperationIR, ctx: ClientContext) -> list[str]
     url_literal = f"Literal[{operation.path!r}]"
     params_annotation = _optional_type(params_type, ctx.profile)
     response_alias = _operation_response_alias(operation)
-    body_annotation = _request_body_annotation(operation, ctx) or "None"
-    content_type_annotation = _request_content_type_annotation(operation, ctx) or "None"
-    body_type = body_annotation if body_annotation == "None" else f"{body_annotation} | None"
-    content_type = content_type_annotation if content_type_annotation == "None" else f"{content_type_annotation} | None"
+    body_annotation = _request_body_annotation(operation, ctx)
+    content_type_annotation = _request_content_type_annotation(operation, ctx)
     expected_annotation = _expected_statuses_annotation()
+    body_part, content_type_part = _request_param_parts(
+        operation.request_body,
+        body_annotation,
+        content_type_annotation,
+        ctx.profile,
+    )
+    param_parts = [f"url: {url_literal}", "*", f"params: {params_annotation} = ..."]
+    param_parts.append(body_part)
+    param_parts.append(content_type_part)
+    param_parts.append(f"expected_statuses: {expected_annotation} = ...")
+    param_parts.append("timeout: float | None = ...")
+
+    signature = ", ".join(param_parts)
     return [
         "    @overload",
-        (
-            f"    def {operation.method}(self, url: {url_literal}, "
-            f"params: {params_annotation} = ..., "
-            f"body: {body_type} = ..., "
-            f"content_type: {content_type} = ..., "
-            f"expected_statuses: {expected_annotation} = ...) -> {response_alias}:"
-        ),
+        f"    def {operation.method}(self, {signature}) -> {response_alias}:",
         "        ...",
         "",
     ]
@@ -143,20 +148,25 @@ def _emit_async_overload(operation: OperationIR, ctx: ClientContext) -> list[str
     url_literal = f"Literal[{operation.path!r}]"
     params_annotation = _optional_type(params_type, ctx.profile)
     response_alias = _operation_response_alias(operation)
-    body_annotation = _request_body_annotation(operation, ctx) or "None"
-    content_type_annotation = _request_content_type_annotation(operation, ctx) or "None"
-    body_type = body_annotation if body_annotation == "None" else f"{body_annotation} | None"
-    content_type = content_type_annotation if content_type_annotation == "None" else f"{content_type_annotation} | None"
+    body_annotation = _request_body_annotation(operation, ctx)
+    content_type_annotation = _request_content_type_annotation(operation, ctx)
     expected_annotation = _expected_statuses_annotation()
+    body_part, content_type_part = _request_param_parts(
+        operation.request_body,
+        body_annotation,
+        content_type_annotation,
+        ctx.profile,
+    )
+    param_parts = [f"url: {url_literal}", "*", f"params: {params_annotation} = ..."]
+    param_parts.append(body_part)
+    param_parts.append(content_type_part)
+    param_parts.append(f"expected_statuses: {expected_annotation} = ...")
+    param_parts.append("timeout: float | None = ...")
+
+    signature = ", ".join(param_parts)
     return [
         "    @overload",
-        (
-            f"    async def {operation.method}(self, url: {url_literal}, "
-            f"params: {params_annotation} = ..., "
-            f"body: {body_type} = ..., "
-            f"content_type: {content_type} = ..., "
-            f"expected_statuses: {expected_annotation} = ...) -> {response_alias}:"
-        ),
+        f"    async def {operation.method}(self, {signature}) -> {response_alias}:",
         "        ...",
         "",
     ]
@@ -273,6 +283,41 @@ def _expected_statuses_annotation() -> str:
     return "set[str] | None"
 
 
+def _ensure_optional(value: str, profile: GenerationProfile) -> str:
+    if "None" in value:
+        return value
+    if profile.use_pep604:
+        return f"{value} | None"
+    return f"Union[{value}, None]"
+
+
+def _request_param_parts(
+    request_body: RequestBodyIR | None,
+    body_annotation: str | None,
+    content_type_annotation: str | None,
+    profile: GenerationProfile,
+) -> tuple[str, str]:
+    if request_body is None:
+        return "body: None = ...", "content_type: str | None = ..."
+
+    if body_annotation is None:
+        body_type = "None"
+    elif request_body.required:
+        body_type = body_annotation
+    else:
+        body_type = _ensure_optional(body_annotation, profile)
+
+    body_default = "" if request_body.required else " = ..."
+    body_part = f"body: {body_type}{body_default}"
+
+    if content_type_annotation is None:
+        return body_part, "content_type: str | None = ..."
+
+    content_default = "" if request_body.required else " = ..."
+    content_part = f"content_type: {content_type_annotation}{content_default}"
+    return body_part, content_part
+
+
 def _emit_response_aliases(operations: list[OperationIR], ctx: ClientContext) -> list[str]:
     lines: list[str] = []
     for operation in operations:
@@ -336,11 +381,14 @@ def _known_statuses(operation: OperationIR) -> list[str]:
 def _response_body_union(response: ResponseIR, ctx: ClientContext) -> str:
     if not response.content:
         return "None"
-    body_types = [_media_type_body(media, ctx) for media in response.content]
+    media_items = _filter_empty_json_media(response.content)
+    body_types = [_media_type_body(media, ctx) for media in media_items]
     return _union_types(body_types, ctx)
 
 
 def _media_type_body(media: MediaTypeIR, ctx: ClientContext) -> str:
+    if media.content_type == "application/octet-stream":
+        return "bytes"
     if media.content_type == "text/event-stream":
         ctx.uses_iterator = True
         return "Iterator[str]"
@@ -348,6 +396,10 @@ def _media_type_body(media: MediaTypeIR, ctx: ClientContext) -> str:
         return "JsonValue"
     if not isinstance(media.schema, dict):
         return "JsonValue"
+    if media.content_type.startswith("application/json") and media.schema == {}:
+        return "JsonValue"
+    if media.schema.get("format") in {"binary", "byte"}:
+        return "bytes"
     base = ctx.emitter.emit(cast(SchemaObject, media.schema))
     return ctx.emitter.apply_nullable(base, cast(SchemaObject, media.schema))
 
@@ -361,6 +413,17 @@ def _union_types(types: list[str], ctx: ClientContext) -> str:
     if ctx.profile.use_pep604:
         return " | ".join(unique)
     return f"Union[{', '.join(unique)}]"
+
+
+def _filter_empty_json_media(media: list[MediaTypeIR]) -> list[MediaTypeIR]:
+    if len(media) <= 1:
+        return media
+    filtered: list[MediaTypeIR] = []
+    for item in media:
+        if item.content_type == "application/json" and item.schema == {}:
+            continue
+        filtered.append(item)
+    return filtered or media
 
 
 def _response_union(success: str, error: str, ctx: ClientContext) -> str:
@@ -523,6 +586,7 @@ def _emit_method_impls(
                 "        self,",
                 "        method: str,",
                 "        url: str,",
+                "        *,",
                 "        params: object | None = None,",
                 "        body: object | None = None,",
                 "        content_type: str | None = None,",
@@ -533,9 +597,17 @@ def _emit_method_impls(
                 "        path_params = params_map.get('path') if params_map else None",
                 "        query_params = params_map.get('query') if params_map else None",
                 "        header_params = params_map.get('header') if params_map else None",
+                "        cookie_params = params_map.get('cookie') if params_map else None",
                 "        headers = dict(self._headers)",
                 "        if header_params:",
                 "            headers.update({str(k): str(v) for k, v in header_params.items()})",
+                "        if cookie_params:",
+                "            cookie_header = '; '.join(",
+                "                f\"{key}={value}\" for key, value in cookie_params.items()",
+                "            )",
+                "            if cookie_header:",
+                "                if 'cookie' not in {k.lower() for k in headers.keys()}:",
+                "                    headers['Cookie'] = cookie_header",
                 "        if content_type is None:",
                 "            content_types = self._request_content_types.get((method, url))",
                 "            if content_types and len(content_types) == 1:",
@@ -584,6 +656,7 @@ def _emit_method_impls(
                 "        self,",
                 "        method: str,",
                 "        url: str,",
+                "        *,",
                 "        params: object | None = None,",
                 "        body: object | None = None,",
                 "        content_type: str | None = None,",
@@ -594,9 +667,17 @@ def _emit_method_impls(
                 "        path_params = params_map.get('path') if params_map else None",
                 "        query_params = params_map.get('query') if params_map else None",
                 "        header_params = params_map.get('header') if params_map else None",
+                "        cookie_params = params_map.get('cookie') if params_map else None",
                 "        headers = dict(self._headers)",
                 "        if header_params:",
                 "            headers.update({str(k): str(v) for k, v in header_params.items()})",
+                "        if cookie_params:",
+                "            cookie_header = '; '.join(",
+                "                f\"{key}={value}\" for key, value in cookie_params.items()",
+                "            )",
+                "            if cookie_header:",
+                "                if 'cookie' not in {k.lower() for k in headers.keys()}:",
+                "                    headers['Cookie'] = cookie_header",
                 "        if content_type is None:",
                 "            content_types = self._request_content_types.get((method, url))",
                 "            if content_types and len(content_types) == 1:",
@@ -646,6 +727,7 @@ def _emit_method_impls(
                     f"    def {method}(",
                     "        self,",
                     "        url: str,",
+                    "        *,",
                     "        params: object | None = None,",
                     "        body: object | None = None,",
                     "        content_type: str | None = None,",
@@ -653,7 +735,13 @@ def _emit_method_impls(
                     "        timeout: float | None = None,",
                     "    ) -> SuccessResponse[object] | ErrorResponse[object]:",
                     "        return self.request(",
-                    f"            '{method.upper()}', url, params, body, content_type, expected_statuses, timeout",
+                    f"            '{method.upper()}',",
+                    "            url,",
+                    "            params=params,",
+                    "            body=body,",
+                    "            content_type=content_type,",
+                    "            expected_statuses=expected_statuses,",
+                    "            timeout=timeout,",
                     "        )",
                     "",
                 ]
@@ -664,6 +752,7 @@ def _emit_method_impls(
                     f"    async def {method}(",
                     "        self,",
                     "        url: str,",
+                    "        *,",
                     "        params: object | None = None,",
                     "        body: object | None = None,",
                     "        content_type: str | None = None,",
@@ -671,7 +760,13 @@ def _emit_method_impls(
                     "        timeout: float | None = None,",
                     "    ) -> SuccessResponse[object] | ErrorResponse[object]:",
                     "        return await self.request(",
-                    f"            '{method.upper()}', url, params, body, content_type, expected_statuses, timeout",
+                    f"            '{method.upper()}',",
+                    "            url,",
+                    "            params=params,",
+                    "            body=body,",
+                    "            content_type=content_type,",
+                    "            expected_statuses=expected_statuses,",
+                    "            timeout=timeout,",
                     "        )",
                     "",
                 ]
@@ -728,6 +823,15 @@ def _emit_create_helper(ctx: ClientContext) -> list[str]:
 
 def _indent_lines(lines: list[str]) -> list[str]:
     return [f"    {line}" if line else "" for line in lines]
+
+
+def _import_insert_index(lines: list[str]) -> int:
+    for index, line in enumerate(lines):
+        if line.startswith("from __future__ import"):
+            return index + 1
+    if lines and lines[0].startswith("# ruff:"):
+        return 1
+    return 0
 
 
 def _emit_expected_statuses_map(operations: list[OperationIR]) -> list[str]:

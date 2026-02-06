@@ -192,3 +192,25 @@ class TestGenerateClient:
         ]
         output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
         assert "'accept': Literal['application/json', 'text/plain']" in output
+        assert "timeout: float | None" in output
+
+    def test_empty_json_schema_uses_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/empty",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/json", schema={})],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[JsonValue]" in output
