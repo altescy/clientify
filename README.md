@@ -9,11 +9,12 @@ Clientify produces both synchronous and asynchronous Python client code with ful
 
 ## Features
 
-- **Type-Safe**: Full type annotations for request parameters, bodies, and responses
+- **Zero-Cost Type Safety**: Uses `TypedDict` for response models with no runtime validation overhead. JSON responses are used directly without object instantiation or schema validation.
+- **Single Implementation**: Uses `@overload` for path-specific type hints while maintaining a single runtime implementation. No per-endpoint method generation or dynamic dispatch overhead.
+- **No Generated Dependencies**: Generated code relies only on the Python standard library. You bring your own HTTP client (httpx, requests, etc.) via the Backend protocol - no additional packages required.
+- **Streaming Support**: Built-in support for Server-Sent Events (`text/event-stream`) with `Iterator[str]` / `AsyncIterator[str]` for streaming responses.
 - **Sync & Async**: Generates both synchronous and asynchronous client classes
 - **Backend Agnostic**: Works with any HTTP library that implements the simple Backend protocol (httpx, requests, aiohttp, etc.)
-- **Overloaded Methods**: Path-specific type hints via `@overload` for precise return types
-- **Model Generation**: Pydantic-style dataclasses for request/response schemas
 - **Python 3.10+**: Modern Python syntax with union types (`X | Y`) and other features
 
 ## Quick Start
