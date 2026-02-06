@@ -31,6 +31,12 @@ TEST_SERVER_HOST = "127.0.0.1"
 TEST_SERVER_PORT = 18765
 
 
+def _get_python_version() -> str:
+    """Get current Python version as 'major.minor' string."""
+    info = sys.version_info
+    return f"{info.major}.{info.minor}"
+
+
 class ServerThread(threading.Thread):
     """Thread that runs uvicorn server."""
 
@@ -61,7 +67,7 @@ def generated_client_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     # Generate the client package
     document = load_openapi(SPEC_PATH)
     ir = build_ir(document)
-    profile = GenerationProfile.from_version("3.14")
+    profile = GenerationProfile.from_version(_get_python_version())
     package_spec = PackageSpec(package_name="petstore_client", output_dir=output_dir)
     result = generate_package(package_spec, ir, profile)
 
