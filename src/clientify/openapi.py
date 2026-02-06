@@ -2,6 +2,28 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+# Type aliases for JSON-like values used in OpenAPI
+JsonPrimitive = str | int | float | bool | None
+JsonValue = JsonPrimitive | list["JsonValue"] | dict[str, "JsonValue"]
+
+# Type alias for enum values (OpenAPI enum can contain strings, numbers, or booleans)
+EnumValue = str | int | float | bool | None
+
+# Type alias for default values in schemas
+DefaultValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
+
+# Header object (simplified - commonly used fields)
+HeaderObject = TypedDict(
+    "HeaderObject",
+    {
+        "description": str,
+        "required": bool,
+        "schema": "SchemaObject",
+        "$ref": str,
+    },
+    total=False,
+)
+
 SchemaObject = TypedDict(
     "SchemaObject",
     {
@@ -11,15 +33,19 @@ SchemaObject = TypedDict(
         "items": "SchemaObject",
         "required": list[str],
         "nullable": bool,
-        "enum": list[object],
+        "enum": list[EnumValue],
         "oneOf": list["SchemaObject"],
         "anyOf": list["SchemaObject"],
         "allOf": list["SchemaObject"],
+        # Note: additionalProperties can be bool or SchemaObject, but we use object
+        # for compatibility with TypedDict's type annotation limitations
         "additionalProperties": object,
-        "default": object,
+        "default": DefaultValue,
         "description": str,
         "title": str,
         "$ref": str,
+        # Clientify extension field for tracking schema names
+        "x-clientify-schema-name": str,
     },
     total=False,
 )
@@ -36,7 +62,7 @@ ResponseObject = TypedDict(
     "ResponseObject",
     {
         "description": str,
-        "headers": dict[str, object],
+        "headers": dict[str, HeaderObject],
         "content": dict[str, MediaTypeObject],
         "$ref": str,
     },
@@ -65,7 +91,7 @@ ParameterObject = TypedDict(
         "style": str,
         "explode": bool,
         "allowReserved": bool,
-        "default": object,
+        "default": DefaultValue,
         "$ref": str,
     },
     total=False,
@@ -118,6 +144,28 @@ InfoObject = TypedDict(
     total=False,
 )
 
+# Server variable object
+ServerVariableObject = TypedDict(
+    "ServerVariableObject",
+    {
+        "enum": list[str],
+        "default": str,
+        "description": str,
+    },
+    total=False,
+)
+
+# Server object with proper typing
+ServerObject = TypedDict(
+    "ServerObject",
+    {
+        "url": str,
+        "description": str,
+        "variables": dict[str, ServerVariableObject],
+    },
+    total=False,
+)
+
 OpenAPIDocument = TypedDict(
     "OpenAPIDocument",
     {
@@ -125,7 +173,7 @@ OpenAPIDocument = TypedDict(
         "info": InfoObject,
         "paths": dict[str, PathItemObject],
         "components": ComponentsObject,
-        "servers": list[dict[str, object]],
+        "servers": list[ServerObject],
     },
     total=False,
 )

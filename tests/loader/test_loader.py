@@ -7,7 +7,7 @@ from typing import cast
 import pytest
 
 from clientify.errors import SpecError
-from clientify.loader import load_openapi, resolve_refs
+from clientify.loader import RefResolver, load_openapi, resolve_refs
 from clientify.openapi import OpenAPIDocument
 
 
@@ -82,3 +82,145 @@ class TestResolveRefs:
         user = cast(dict[str, object], schemas.get("User", {}))
         assert user.get("type") == "object"
         assert user.get("description") == "merged"
+
+
+class TestRefResolver:
+    """Tests for the RefResolver class."""
+
+    def test_resolves_local_ref(self) -> None:
+        """Test that local #/components/schemas/ refs are resolved."""
+        document: OpenAPIDocument = cast(
+            OpenAPIDocument,
+            {
+                "openapi": "3.0.3",
+                "paths": {
+                    "/users": {
+                        "get": {
+                            "responses": {
+                                "200": {
+                                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/User"}}}
+                                }
+                            }
+                        }
+                    }
+                },
+                "components": {"schemas": {"User": {"type": "object"}}},
+            },
+        )
+        resolver = RefResolver(document, None)
+        resolved = resolver.resolve()
+        paths = resolved.get("paths", {})
+        users_path = cast(dict[str, object], paths.get("/users", {}))
+        get_op = cast(dict[str, object], users_path.get("get", {}))
+        responses = cast(dict[str, object], get_op.get("responses", {}))
+        response_200 = cast(dict[str, object], responses.get("200", {}))
+        content = cast(dict[str, object], response_200.get("content", {}))
+        json_content = cast(dict[str, object], content.get("application/json", {}))
+        schema = cast(dict[str, object], json_content.get("schema", {}))
+        assert schema.get("type") == "object"
+        assert schema.get("x-clientify-schema-name") == "User"
+
+    def test_resolves_nested_refs(self) -> None:
+        """Test that nested refs are resolved recursively."""
+        document: OpenAPIDocument = cast(
+            OpenAPIDocument,
+            {
+                "openapi": "3.0.3",
+                "paths": {},
+                "components": {
+                    "schemas": {
+                        "User": {
+                            "type": "object",
+                            "properties": {"address": {"$ref": "#/components/schemas/Address"}},
+                        },
+                        "Address": {"type": "object"},
+                    }
+                },
+            },
+        )
+        resolver = RefResolver(document, None)
+        resolved = resolver.resolve()
+        components = cast(dict[str, object], resolved.get("components", {}))
+        schemas = cast(dict[str, object], components.get("schemas", {}))
+        user = cast(dict[str, object], schemas.get("User", {}))
+        properties = cast(dict[str, object], user.get("properties", {}))
+        address = cast(dict[str, object], properties.get("address", {}))
+        assert address.get("type") == "object"
+
+    def test_invalid_ref_fragment_raises(self) -> None:
+        """Test that invalid $ref fragment format raises SpecError."""
+        document: OpenAPIDocument = cast(
+            OpenAPIDocument,
+            {
+                "openapi": "3.0.3",
+                "paths": {},
+                "components": {
+                    "schemas": {
+                        # Fragment that doesn't start with /
+                        "User": {"$ref": "#invalid-fragment"}
+                    }
+                },
+            },
+        )
+        resolver = RefResolver(document, None)
+        with pytest.raises(SpecError, match="Unsupported"):
+            resolver.resolve()
+
+    def test_unresolvable_pointer_raises(self) -> None:
+        """Test that unresolvable pointer raises SpecError."""
+        document: OpenAPIDocument = cast(
+            OpenAPIDocument,
+            {
+                "openapi": "3.0.3",
+                "paths": {},
+                "components": {"schemas": {"User": {"$ref": "#/components/schemas/NonExistent"}}},
+            },
+        )
+        resolver = RefResolver(document, None)
+        with pytest.raises(SpecError, match="Unresolvable"):
+            resolver.resolve()
+
+    def test_caches_resolved_refs(self) -> None:
+        """Test that resolved refs are cached for reuse."""
+        document: OpenAPIDocument = cast(
+            OpenAPIDocument,
+            {
+                "openapi": "3.0.3",
+                "paths": {},
+                "components": {
+                    "schemas": {
+                        "User": {"type": "object"},
+                        "UserList": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/User"},
+                        },
+                        "UserResponse": {
+                            "type": "object",
+                            "properties": {"user": {"$ref": "#/components/schemas/User"}},
+                        },
+                    }
+                },
+            },
+        )
+        resolver = RefResolver(document, None)
+        resolver.resolve()
+        # Cache should contain the User schema
+        assert "#/components/schemas/User" in resolver._cache
+
+    def test_non_string_ref_raises(self) -> None:
+        """Test that non-string $ref raises SpecError."""
+        document: OpenAPIDocument = cast(
+            OpenAPIDocument,
+            {
+                "openapi": "3.0.3",
+                "paths": {},
+                "components": {
+                    "schemas": {
+                        "User": {"$ref": 123}  # Invalid: should be string
+                    }
+                },
+            },
+        )
+        resolver = RefResolver(document, None)
+        with pytest.raises(SpecError, match="must be a string"):
+            resolver.resolve()
