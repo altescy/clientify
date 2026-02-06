@@ -80,6 +80,8 @@ def emit_client_init(sync: bool) -> list[str]:
         "    def _decode_body(self, content_type: str, data: bytes) -> object:",
         "        if not content_type:",
         "            return data",
+        "        if not data:",
+        "            return None",
         "        if content_type.startswith('application/x-ndjson'):",
         "            return [json.loads(line) for line in data.splitlines() if line]",
         "        if content_type.startswith('application/stream+json'):",
