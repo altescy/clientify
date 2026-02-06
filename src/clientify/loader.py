@@ -7,7 +7,7 @@ from typing import Mapping, cast
 from urllib.parse import urldefrag
 
 from .errors import SpecError
-from .openapi_types import OpenAPIDocument
+from .openapi import OpenAPIDocument
 
 OpenAPISource = str | Path | Mapping[str, object]
 

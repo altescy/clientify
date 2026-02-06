@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, cast
 
-from .openapi_types import (
+from .openapi import (
     ComponentsObject,
     MediaTypeObject,
     OpenAPIDocument,

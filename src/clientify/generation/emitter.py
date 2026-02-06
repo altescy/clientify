@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import cast
 
-from ..openapi_types import SchemaObject
+from ..openapi import SchemaObject
 from .profile import GenerationProfile
 
 

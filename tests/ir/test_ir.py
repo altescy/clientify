@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 from clientify.ir import build_ir
-from clientify.openapi_types import OpenAPIDocument
+from clientify.openapi import OpenAPIDocument
 
 
 class TestBuildIR:

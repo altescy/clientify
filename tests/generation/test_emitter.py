@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from clientify.generation.profile import GenerationProfile
-from clientify.generation.type_emitter import TypeEmitter
+from clientify.generation.emitter import TypeEmitter
 
 
 class TestTypeEmitter:

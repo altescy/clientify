@@ -8,7 +8,7 @@ import pytest
 
 from clientify.errors import SpecError
 from clientify.loader import load_openapi, resolve_refs
-from clientify.openapi_types import OpenAPIDocument
+from clientify.openapi import OpenAPIDocument
 
 
 class TestLoadOpenAPI:

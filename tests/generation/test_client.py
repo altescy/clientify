@@ -63,6 +63,7 @@ class TestGenerateClient:
         assert "GetUsersIdPathParams = TypedDict(" in output
         assert "'id': Required[int]" in output
         assert "GetUsersIdResponse" in output
+        assert "GetUsersIdAsyncResponse" in output
 
     def test_generates_request_body_union(self) -> None:
         operations = [

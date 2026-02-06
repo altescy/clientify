@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..ir import SchemaIR
-from ..openapi_types import SchemaObject
+from ..openapi import SchemaObject
 from .profile import GenerationProfile
-from .type_emitter import TypeEmitter
+from .emitter import TypeEmitter
 
 
 @dataclass
