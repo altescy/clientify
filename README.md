@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/altescy/clientify/actions/workflows/ci.yaml/badge.svg)](https://github.com/altescy/clientify/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Releases](https://img.shields.io/github/v/release/altescy/clientify)](https://github.com/altescy/clientify/releases)
 
 Generate type-safe HTTP clients from OpenAPI specifications.
 
