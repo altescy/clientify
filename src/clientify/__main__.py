@@ -9,10 +9,12 @@ from .generation import GenerationProfile
 from .generator import PackageSpec, generate_package
 from .ir import build_ir
 from .loader import load_openapi
+from .version import VERSION
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="clientify", description="Generate Python client from OpenAPI spec.")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     parser.add_argument("spec", type=str, help="Path to OpenAPI spec (JSON/YAML)")
     parser.add_argument("-n", "--package-name", required=True, help="Generated package name")
     parser.add_argument("-o", "--output-dir", type=Path, default=Path(), help="Output directory")
