@@ -45,3 +45,22 @@ class TestTypeEmitter:
         emitter = TypeEmitter(GenerationProfile.from_version("3.14"))
         result = emitter.emit({"allOf": [{"type": "object"}, {"type": "object"}]})
         assert result == "dict[str, object]"
+
+    def test_emits_null_type(self) -> None:
+        profile = GenerationProfile.from_version("3.14")
+        emitter = TypeEmitter(profile)
+        result = emitter.emit({"type": "null"})
+        assert result == "None"
+
+    def test_emits_anyof_with_null(self) -> None:
+        profile = GenerationProfile.from_version("3.14")
+        emitter = TypeEmitter(profile)
+        result = emitter.emit(
+            {
+                "anyOf": [
+                    {"type": "string"},
+                    {"type": "null"},
+                ]
+            }
+        )
+        assert result == "str | None"

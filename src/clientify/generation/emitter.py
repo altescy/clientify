@@ -94,6 +94,8 @@ class TypeEmitter:
             return f"Literal[{literals}]"
 
         schema_type = schema.get("type")
+        if schema_type == "null":
+            return "None"
         if schema_type == "string":
             return "str"
         if schema_type == "integer":
