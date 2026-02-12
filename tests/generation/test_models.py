@@ -47,3 +47,27 @@ class TestGenerateModels:
         profile = GenerationProfile.from_version("3.14")
         output = generate_models(schemas, profile).code
         assert "UserId = int" in output
+
+    def test_nested_object_uses_json_value(self) -> None:
+        schemas = [
+            SchemaIR(
+                name="User",
+                schema={
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "address": {
+                            "type": "object",
+                            "properties": {
+                                "street": {"type": "string"},
+                            },
+                        },
+                        "metadata": {"type": "object"},
+                    },
+                },
+            )
+        ]
+        output = generate_models(schemas, GenerationProfile.from_version("3.14"))
+        assert "from .types import JsonValue" in output.code
+        assert "'address': dict[str, JsonValue]" in output.code
+        assert "'metadata': dict[str, JsonValue]" in output.code

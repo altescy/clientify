@@ -94,7 +94,7 @@ class TestGenerateClient:
         ]
         output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
         assert "body:" in output
-        assert "dict[str, object] | str | None" in output
+        assert "dict[str, JsonValue] | str | None" in output
         assert "content_type: Literal['application/json', 'text/plain']" in output
 
     def test_generates_expected_statuses(self) -> None:
@@ -488,8 +488,8 @@ class TestGenerateClient:
             )
         ]
         output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
-        assert "SuccessResponse[Iterator[dict[str, object]]]" in output
-        assert "SuccessResponse[AsyncIterator[dict[str, object]]]" in output
+        assert "SuccessResponse[Iterator[dict[str, JsonValue]]]" in output
+        assert "SuccessResponse[AsyncIterator[dict[str, JsonValue]]]" in output
 
     def test_ndjson_with_ref_schema_uses_iterator_of_model(self) -> None:
         operations = [
@@ -815,3 +815,69 @@ class TestGenerateClient:
         ]
         output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
         assert "SuccessResponse[bytes]" in output
+
+    def test_nested_object_without_properties_uses_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/nested",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[
+                            MediaTypeIR(
+                                content_type="application/json",
+                                schema={
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {"type": "integer"},
+                                        "metadata": {"type": "object"},
+                                    },
+                                },
+                            )
+                        ],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "dict[str, JsonValue]" in output
+
+    def test_array_of_any_uses_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/array-any",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[
+                            MediaTypeIR(
+                                content_type="application/json",
+                                schema={
+                                    "type": "object",
+                                    "properties": {
+                                        "items": {
+                                            "type": "array",
+                                        },
+                                    },
+                                },
+                            )
+                        ],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        # Inline schemas are treated as dict[str, JsonValue]
+        assert "dict[str, JsonValue]" in output

@@ -129,8 +129,7 @@ def _media_type_body(media: MediaTypeIR, ctx: ClientContext, stream_iterator: st
                 return "bytes"
             base = ctx.emitter.emit(cast(SchemaObject, media.schema))
             item_type = ctx.emitter.apply_nullable(base, cast(SchemaObject, media.schema))
-            if item_type == "object":
-                item_type = "JsonValue"
+            item_type = _replace_object_with_json_value(item_type)
             return stream_iterator.replace("str", item_type)
         return stream_iterator.replace("str", "JsonValue")
 
@@ -168,9 +167,7 @@ def _media_type_body(media: MediaTypeIR, ctx: ClientContext, stream_iterator: st
                 return "bytes"
             base = ctx.emitter.emit(cast(SchemaObject, media.schema))
             nullable_base = ctx.emitter.apply_nullable(base, cast(SchemaObject, media.schema))
-            if nullable_base == "object":
-                return "JsonValue"
-            return nullable_base
+            return _replace_object_with_json_value(nullable_base)
         return "JsonValue"
 
     if media.schema is not None and isinstance(media.schema, dict) and media.schema != {}:
@@ -180,6 +177,24 @@ def _media_type_body(media: MediaTypeIR, ctx: ClientContext, stream_iterator: st
         return ctx.emitter.apply_nullable(base, cast(SchemaObject, media.schema))
 
     return "object"
+
+
+def _replace_object_with_json_value(type_str: str) -> str:
+    """Replace 'object' with 'JsonValue' in type annotations for JSON content.
+
+    This handles cases like:
+    - "object" -> "JsonValue"
+    - "dict[str, object]" -> "dict[str, JsonValue]"
+    - "list[object]" -> "list[JsonValue]"
+    - "dict[str, list[object]]" -> "dict[str, list[JsonValue]]"
+    """
+    if type_str == "object":
+        return "JsonValue"
+    # Replace object in generic types (dict, list, etc.)
+    # Use word boundary to avoid replacing "object" in the middle of other words
+    import re
+
+    return re.sub(r"\bobject\b", "JsonValue", type_str)
 
 
 def union_types(types: list[str], ctx: ClientContext) -> str:

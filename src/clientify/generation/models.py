@@ -34,14 +34,23 @@ def generate_models(
     else:
         lines.append("from typing import Required, TypedDict")
 
+    needs_json_value = False
+    schema_lines: list[str] = []
     for schema in schemas:
-        lines.extend(_emit_schema(schema, emitter, profile))
+        schema_output = _emit_schema(schema, emitter, profile)
+        schema_lines.extend(schema_output)
+        if any("JsonValue" in line for line in schema_output):
+            needs_json_value = True
 
     imports = _render_imports(emitter)
     if imports:
         insert_at = 1 if lines and lines[0].startswith("from __future__") else 0
         lines.insert(insert_at, imports)
 
+    if needs_json_value:
+        lines.append("from .types import JsonValue")
+
+    lines.extend(schema_lines)
     return ModelOutput(code="\n".join(lines).rstrip() + "\n")
 
 
@@ -88,6 +97,7 @@ def _emit_alias(
 ) -> str:
     base = emitter.emit(schema)
     base = emitter.apply_nullable(base, schema)
+    base = _replace_object_with_json_value(base)
     return f"{name} = {base}"
 
 
@@ -107,7 +117,24 @@ def _typed_dict_items(
     for prop_name, prop_schema in properties.items():
         prop_type = emitter.emit(prop_schema)
         prop_type = emitter.apply_nullable(prop_type, prop_schema)
+        prop_type = _replace_object_with_json_value(prop_type)
         if prop_name in required_set:
             prop_type = f"Required[{prop_type}]"
         items.append(f"        {prop_name!r}: {prop_type},")
     return items
+
+
+def _replace_object_with_json_value(type_str: str) -> str:
+    """Replace 'object' with 'JsonValue' in type annotations.
+
+    OpenAPI schemas are JSON-based, so 'object' should be 'JsonValue'.
+    This handles cases like:
+    - "object" -> "JsonValue"
+    - "dict[str, object]" -> "dict[str, JsonValue]"
+    - "list[object]" -> "list[JsonValue]"
+    """
+    if type_str == "object":
+        return "JsonValue"
+    import re
+
+    return re.sub(r"\bobject\b", "JsonValue", type_str)
