@@ -626,3 +626,192 @@ class TestGenerateClient:
         output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
         assert "SuccessResponse[Iterator[JsonValue]]" in output
         assert "SuccessResponse[AsyncIterator[JsonValue]]" in output
+
+    def test_xml_response_uses_str(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/xml-data",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/xml", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[str]" in output
+
+    def test_text_xml_response_uses_str(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/xml-data2",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="text/xml", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[str]" in output
+
+    def test_plus_xml_response_uses_str(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/xml-data3",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/atom+xml", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[str]" in output
+
+    def test_html_response_uses_str(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/html-page",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="text/html", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[str]" in output
+
+    def test_yaml_response_uses_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/yaml-config",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/yaml", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[JsonValue]" in output
+
+    def test_image_response_uses_bytes(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/image",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="image/png", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[bytes]" in output
+
+    def test_video_response_uses_bytes(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/video",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="video/mp4", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[bytes]" in output
+
+    def test_audio_response_uses_bytes(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/audio",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="audio/mpeg", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[bytes]" in output
+
+    def test_pdf_response_uses_bytes(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/document",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/pdf", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[bytes]" in output

@@ -138,8 +138,29 @@ def _media_type_body(media: MediaTypeIR, ctx: ClientContext, stream_iterator: st
         return "str"
     if media.content_type.startswith("text/csv"):
         return "str"
+    if media.content_type.startswith("text/html"):
+        return "str"
+    if media.content_type.startswith("application/xml") or media.content_type.startswith("text/xml"):
+        return "str"
+    if media.content_type.endswith("+xml"):
+        return "str"
     if media.content_type.startswith("application/x-www-form-urlencoded"):
         return "str"
+
+    if (
+        media.content_type.startswith("application/yaml")
+        or media.content_type.startswith("application/x-yaml")
+        or media.content_type.startswith("text/yaml")
+    ):
+        return "JsonValue"
+
+    if (
+        media.content_type.startswith("image/")
+        or media.content_type.startswith("video/")
+        or media.content_type.startswith("audio/")
+        or media.content_type == "application/pdf"
+    ):
+        return "bytes"
 
     if media.content_type.startswith("application/json") or media.content_type.endswith("+json"):
         if media.schema is not None and isinstance(media.schema, dict) and media.schema != {}:
