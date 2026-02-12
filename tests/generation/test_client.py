@@ -215,3 +215,414 @@ class TestGenerateClient:
         ]
         output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
         assert "SuccessResponse[JsonValue]" in output
+
+    def test_json_without_schema_uses_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/data",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/json", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[JsonValue]" in output
+
+    def test_plus_json_content_type_uses_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/custom",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/vnd.api+json", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[JsonValue]" in output
+
+    def test_ndjson_response_uses_iterator_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/stream",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/x-ndjson", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[Iterator[JsonValue]]" in output
+        assert "SuccessResponse[AsyncIterator[JsonValue]]" in output
+
+    def test_stream_json_response_uses_iterator_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/stream2",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/stream+json", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[Iterator[JsonValue]]" in output
+        assert "SuccessResponse[AsyncIterator[JsonValue]]" in output
+
+    def test_text_plain_response_uses_str(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/text",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="text/plain", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[str]" in output
+
+    def test_text_csv_response_uses_str(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/csv",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="text/csv", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[str]" in output
+
+    def test_form_urlencoded_response_uses_str(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/form",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/x-www-form-urlencoded", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[str]" in output
+
+    def test_unknown_content_type_without_schema_uses_object(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/unknown",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/x-custom", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[object]" in output
+
+    def test_request_body_with_json_without_schema_uses_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="post",
+                path="/data",
+                operation_id=None,
+                parameters=[],
+                request_body=RequestBodyIR(
+                    required=True,
+                    content=[MediaTypeIR(content_type="application/json", schema=None)],
+                ),
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/json", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "body: JsonValue" in output
+
+    def test_request_body_with_ndjson_uses_iterator_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="post",
+                path="/stream",
+                operation_id=None,
+                parameters=[],
+                request_body=RequestBodyIR(
+                    required=True,
+                    content=[MediaTypeIR(content_type="application/x-ndjson", schema=None)],
+                ),
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/json", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "body: Iterator[JsonValue]" in output
+
+    def test_request_body_with_text_plain_uses_str(self) -> None:
+        operations = [
+            OperationIR(
+                method="post",
+                path="/text",
+                operation_id=None,
+                parameters=[],
+                request_body=RequestBodyIR(
+                    required=True,
+                    content=[MediaTypeIR(content_type="text/plain", schema=None)],
+                ),
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/json", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "body: str" in output
+
+    def test_ndjson_with_schema_uses_iterator_of_type(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/users-stream",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[
+                            MediaTypeIR(
+                                content_type="application/x-ndjson",
+                                schema={
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {"type": "integer"},
+                                        "name": {"type": "string"},
+                                    },
+                                },
+                            )
+                        ],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[Iterator[dict[str, object]]]" in output
+        assert "SuccessResponse[AsyncIterator[dict[str, object]]]" in output
+
+    def test_ndjson_with_ref_schema_uses_iterator_of_model(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/pets-stream",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[
+                            MediaTypeIR(
+                                content_type="application/x-ndjson",
+                                schema={"$ref": "#/components/schemas/Pet"},
+                            )
+                        ],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["Pet"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[Iterator[Pet]]" in output
+        assert "SuccessResponse[AsyncIterator[Pet]]" in output
+
+    def test_stream_json_with_schema_uses_iterator_of_type(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/events-stream",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[
+                            MediaTypeIR(
+                                content_type="application/stream+json",
+                                schema={"type": "string"},
+                            )
+                        ],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[Iterator[str]]" in output
+        assert "SuccessResponse[AsyncIterator[str]]" in output
+
+    def test_request_body_ndjson_with_schema_uses_iterator_of_type(self) -> None:
+        operations = [
+            OperationIR(
+                method="post",
+                path="/upload-stream",
+                operation_id=None,
+                parameters=[],
+                request_body=RequestBodyIR(
+                    required=True,
+                    content=[
+                        MediaTypeIR(
+                            content_type="application/x-ndjson",
+                            schema={"$ref": "#/components/schemas/Event"},
+                        )
+                    ],
+                ),
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[MediaTypeIR(content_type="application/json", schema=None)],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["Event"], GenerationProfile.from_version("3.14")).code
+        assert "body: Iterator[Event]" in output
+
+    def test_json_schema_without_type_uses_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/data",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[
+                            MediaTypeIR(
+                                content_type="application/json",
+                                schema={"description": "Some data without type field"},
+                            )
+                        ],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[JsonValue]" in output
+
+    def test_ndjson_schema_without_type_uses_iterator_json_value(self) -> None:
+        operations = [
+            OperationIR(
+                method="get",
+                path="/stream",
+                operation_id=None,
+                parameters=[],
+                request_body=None,
+                responses=[
+                    ResponseIR(
+                        status="200",
+                        description="ok",
+                        content=[
+                            MediaTypeIR(
+                                content_type="application/x-ndjson",
+                                schema={"description": "Stream without type field"},
+                            )
+                        ],
+                    )
+                ],
+                extensions={},
+            )
+        ]
+        output = generate_client(operations, ["User"], GenerationProfile.from_version("3.14")).code
+        assert "SuccessResponse[Iterator[JsonValue]]" in output
+        assert "SuccessResponse[AsyncIterator[JsonValue]]" in output

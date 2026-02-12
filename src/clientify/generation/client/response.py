@@ -110,21 +110,55 @@ def _response_body_union(
 
 
 def _media_type_body(media: MediaTypeIR, ctx: ClientContext, stream_iterator: str) -> str:
-    """Get the Python type for a media type body."""
+    """Get the Python type for a media type body.
+
+    This function maps content types to their corresponding Python types based on
+    how the runtime _decode_body() method processes them.
+    """
     if media.content_type == "application/octet-stream":
         return "bytes"
+
     if media.content_type == "text/event-stream":
         return stream_iterator
-    if media.schema is None:
+
+    if media.content_type.startswith("application/x-ndjson") or media.content_type.startswith(
+        "application/stream+json"
+    ):
+        if media.schema is not None and isinstance(media.schema, dict) and media.schema != {}:
+            if media.schema.get("format") in {"binary", "byte"}:
+                return "bytes"
+            base = ctx.emitter.emit(cast(SchemaObject, media.schema))
+            item_type = ctx.emitter.apply_nullable(base, cast(SchemaObject, media.schema))
+            if item_type == "object":
+                item_type = "JsonValue"
+            return stream_iterator.replace("str", item_type)
+        return stream_iterator.replace("str", "JsonValue")
+
+    if media.content_type.startswith("text/plain"):
+        return "str"
+    if media.content_type.startswith("text/csv"):
+        return "str"
+    if media.content_type.startswith("application/x-www-form-urlencoded"):
+        return "str"
+
+    if media.content_type.startswith("application/json") or media.content_type.endswith("+json"):
+        if media.schema is not None and isinstance(media.schema, dict) and media.schema != {}:
+            if media.schema.get("format") in {"binary", "byte"}:
+                return "bytes"
+            base = ctx.emitter.emit(cast(SchemaObject, media.schema))
+            nullable_base = ctx.emitter.apply_nullable(base, cast(SchemaObject, media.schema))
+            if nullable_base == "object":
+                return "JsonValue"
+            return nullable_base
         return "JsonValue"
-    if not isinstance(media.schema, dict):
-        return "JsonValue"
-    if media.content_type.startswith("application/json") and media.schema == {}:
-        return "JsonValue"
-    if media.schema.get("format") in {"binary", "byte"}:
-        return "bytes"
-    base = ctx.emitter.emit(cast(SchemaObject, media.schema))
-    return ctx.emitter.apply_nullable(base, cast(SchemaObject, media.schema))
+
+    if media.schema is not None and isinstance(media.schema, dict) and media.schema != {}:
+        if media.schema.get("format") in {"binary", "byte"}:
+            return "bytes"
+        base = ctx.emitter.emit(cast(SchemaObject, media.schema))
+        return ctx.emitter.apply_nullable(base, cast(SchemaObject, media.schema))
+
+    return "object"
 
 
 def union_types(types: list[str], ctx: ClientContext) -> str:
