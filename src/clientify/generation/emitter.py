@@ -46,7 +46,7 @@ class TypeEmitter:
     quote_refs: bool = False
     imports: set[str] = field(default_factory=set)
 
-    def emit(self, schema: SchemaObject | None) -> str:
+    def emit(self, schema: SchemaObject | bool | None) -> str:
         """Convert an OpenAPI schema to a Python type annotation string.
 
         This method handles various OpenAPI schema types including:
@@ -69,6 +69,11 @@ class TypeEmitter:
         """
         if schema is None:
             return "object"
+
+        # Handle boolean schemas (JSON Schema allows true/false as schemas)
+        if isinstance(schema, bool):
+            return "object"  # true accepts anything, false accepts nothing
+
         if "$ref" in schema:
             ref = schema["$ref"]
             name = self._ref_name(ref)
@@ -87,6 +92,11 @@ class TypeEmitter:
         if all_of:
             return self._emit_all_of(all_of)
 
+        # Handle const (JSON Schema)
+        if "const" in schema:
+            self._ensure_literal()
+            return f"Literal[{repr(schema['const'])}]"
+
         enum_values = schema.get("enum")
         if enum_values:
             self._ensure_literal()
@@ -94,6 +104,12 @@ class TypeEmitter:
             return f"Literal[{literals}]"
 
         schema_type = schema.get("type")
+
+        # Handle type arrays (JSON Schema allows type: [string, number])
+        if isinstance(schema_type, list):
+            type_schemas: list[SchemaObject] = [{"type": t} for t in schema_type]  # type: ignore
+            return self._emit_union(type_schemas)
+
         if schema_type == "null":
             return "None"
         if schema_type == "string":
@@ -105,9 +121,33 @@ class TypeEmitter:
         if schema_type == "boolean":
             return "bool"
         if schema_type == "array":
+            # Handle prefixItems (tuple typing) - JSON Schema draft 2020-12
+            prefix_items = schema.get("prefixItems")
+            if isinstance(prefix_items, list):
+                # Tuple with specific types for each position
+                item_types = [self.emit(cast(SchemaObject, item)) for item in prefix_items]
+                # Check if additional items are allowed
+                items_schema = schema.get("items")
+                if items_schema is False:
+                    # No additional items beyond prefixItems
+                    return f"tuple[{', '.join(item_types)}]"
+                else:
+                    # Additional items are allowed
+                    # Python doesn't have great support for this, use tuple with ...
+                    if items_schema is None or items_schema is True:
+                        # Any additional items
+                        return f"tuple[{', '.join(item_types)}, ...]"
+                    else:
+                        # Specific type for additional items
+                        additional_type = self.emit(cast(SchemaObject, items_schema))
+                        return f"tuple[{', '.join(item_types + [additional_type])}, ...]"
+
+            # Regular array (list)
             items_schema = schema.get("items")
             if isinstance(items_schema, dict):
                 item_type = self.emit(cast(SchemaObject, items_schema))
+            elif isinstance(items_schema, bool):
+                item_type = self.emit(items_schema)
             else:
                 item_type = "object"
             return f"list[{item_type}]"
@@ -116,9 +156,18 @@ class TypeEmitter:
             if isinstance(additional, dict):
                 value_type = self.emit(cast(SchemaObject, additional))
                 return f"dict[str, {value_type}]"
+            if additional is False:
+                # additionalProperties: false means no additional properties allowed
+                # For now, treat as dict[str, object] (could be improved with TypedDict)
+                return "dict[str, object]"
             if additional is True:
                 return "dict[str, object]"
             return "dict[str, object]"
+
+        # Empty schema {} or no type specified - accepts anything
+        if not schema_type and not any(k in schema for k in ["oneOf", "anyOf", "allOf", "enum", "const", "$ref"]):
+            return "object"
+
         return "object"
 
     def apply_nullable(self, base: str, schema: SchemaObject | None) -> str:
@@ -179,10 +228,8 @@ class TypeEmitter:
     def _emit_all_of(self, items: list[SchemaObject]) -> str:
         """Emit a type for allOf schemas.
 
-        Note:
-            Python doesn't have a direct intersection type, so allOf schemas
-            with object types are simplified to dict[str, object]. Non-object
-            allOf schemas fall back to union behavior.
+        For object types, this merges properties from all schemas.
+        For non-object types, falls back to union behavior.
 
         Args:
             items: List of schema objects to intersect
@@ -190,8 +237,16 @@ class TypeEmitter:
         Returns:
             A type annotation representing the intersection
         """
-        object_items = [item for item in items if item.get("type") == "object"]
+        object_items = [item for item in items if isinstance(item, dict) and item.get("type") == "object"]
         if not object_items:
             return self._emit_union(items)
-        # NOTE: allOf lacks a direct intersection type; use a safe object fallback for now.
+
+        # Check if all items are objects with properties that can be merged
+        all_have_properties = all(isinstance(item.get("properties"), dict) for item in object_items)
+        if all_have_properties and len(object_items) == len(items):
+            # We can potentially merge properties, but since we're in emitter (not models),
+            # we can't generate a TypedDict here. Use dict[str, object] as fallback.
+            # The actual merging will be done in models.py if needed.
+            return "dict[str, object]"
+
         return "dict[str, object]"

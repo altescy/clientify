@@ -162,3 +162,76 @@ class TestGenerateModels:
         output = generate_models(schemas, GenerationProfile.from_version("3.14"))
         assert "from .types import JsonValue" in output.code
         assert "FlexibleType = Union[str, dict[str, JsonValue]]" in output.code
+
+    def test_allof_merges_properties(self) -> None:
+        schemas = [
+            SchemaIR(
+                name="Merged",
+                schema={
+                    "allOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "integer"},
+                            },
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                            },
+                        },
+                    ]
+                },
+            )
+        ]
+        output = generate_models(schemas, GenerationProfile.from_version("3.14"))
+        assert "Merged = TypedDict(" in output.code
+        assert "'id': int" in output.code
+        assert "'name': str" in output.code
+
+    def test_allof_merges_required_fields(self) -> None:
+        schemas = [
+            SchemaIR(
+                name="MergedRequired",
+                schema={
+                    "allOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "integer"},
+                            },
+                            "required": ["id"],
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                            },
+                            "required": ["name"],
+                        },
+                    ]
+                },
+            )
+        ]
+        output = generate_models(schemas, GenerationProfile.from_version("3.14"))
+        assert "Required[int]" in output.code
+        assert "Required[str]" in output.code
+
+    def test_additional_properties_false_with_all_required_uses_total_true(self) -> None:
+        schemas = [
+            SchemaIR(
+                name="StrictType",
+                schema={
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "name": {"type": "string"},
+                    },
+                    "required": ["id", "name"],
+                    "additionalProperties": False,
+                },
+            )
+        ]
+        output = generate_models(schemas, GenerationProfile.from_version("3.14"))
+        assert "total=True" in output.code

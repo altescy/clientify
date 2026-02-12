@@ -64,3 +64,69 @@ class TestTypeEmitter:
             }
         )
         assert result == "str | None"
+
+    def test_emits_const_value(self) -> None:
+        profile = GenerationProfile.from_version("3.14")
+        emitter = TypeEmitter(profile)
+        result = emitter.emit({"const": "fixed_value"})  # type: ignore
+        assert result == "Literal['fixed_value']"
+
+    def test_emits_type_array(self) -> None:
+        profile = GenerationProfile.from_version("3.14")
+        emitter = TypeEmitter(profile)
+        result = emitter.emit({"type": ["string", "number"]})  # type: ignore
+        assert result == "str | float"
+
+    def test_emits_boolean_schema_true(self) -> None:
+        profile = GenerationProfile.from_version("3.14")
+        emitter = TypeEmitter(profile)
+        result = emitter.emit(True)
+        assert result == "object"
+
+    def test_emits_boolean_schema_false(self) -> None:
+        profile = GenerationProfile.from_version("3.14")
+        emitter = TypeEmitter(profile)
+        result = emitter.emit(False)
+        assert result == "object"
+
+    def test_emits_empty_schema(self) -> None:
+        profile = GenerationProfile.from_version("3.14")
+        emitter = TypeEmitter(profile)
+        result = emitter.emit({})
+        assert result == "object"
+
+    def test_emits_additional_properties_false(self) -> None:
+        profile = GenerationProfile.from_version("3.14")
+        emitter = TypeEmitter(profile)
+        result = emitter.emit({"type": "object", "additionalProperties": False})
+        assert result == "dict[str, object]"
+
+    def test_emits_prefix_items_tuple(self) -> None:
+        profile = GenerationProfile.from_version("3.14")
+        emitter = TypeEmitter(profile)
+        result = emitter.emit(
+            {  # type: ignore
+                "type": "array",
+                "prefixItems": [
+                    {"type": "string"},
+                    {"type": "number"},
+                ],
+                "items": False,
+            }
+        )
+        assert result == "tuple[str, float]"
+
+    def test_emits_prefix_items_with_additional_items(self) -> None:
+        profile = GenerationProfile.from_version("3.14")
+        emitter = TypeEmitter(profile)
+        result = emitter.emit(
+            {  # type: ignore
+                "type": "array",
+                "prefixItems": [
+                    {"type": "string"},
+                    {"type": "integer"},
+                ],
+                "items": {"type": "boolean"},
+            }
+        )
+        assert result == "tuple[str, int, bool, ...]"

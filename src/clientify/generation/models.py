@@ -62,6 +62,23 @@ def _emit_schema(
     schema = schema_ir.schema
     name = schema_ir.name
 
+    # Handle boolean schemas (JSON Schema allows true/false as schemas)
+    if isinstance(schema, bool):
+        if schema:
+            # true schema accepts anything
+            alias = f"{name} = JsonValue"
+        else:
+            # false schema accepts nothing (never type, but we use JsonValue as fallback)
+            alias = f"{name} = JsonValue"
+        return [alias, ""]
+
+    # Handle allOf with object merge
+    all_of = schema.get("allOf")
+    if all_of and isinstance(all_of, list):
+        merged_schema = _merge_all_of(all_of)
+        if merged_schema and merged_schema.get("type") == "object" and merged_schema.get("properties"):
+            return _emit_typed_dict(name, merged_schema, emitter, profile)
+
     schema_type = schema.get("type")
     if schema_type == "object" and schema.get("properties"):
         return _emit_typed_dict(name, schema, emitter, profile)
@@ -81,11 +98,21 @@ def _emit_typed_dict(
         if isinstance(prop_schema, dict) and "default" in prop_schema:
             required_set.discard(prop_name)
 
+    # Check if additionalProperties is explicitly false
+    additional_properties = schema.get("additionalProperties")
+    closed = additional_properties is False
+
     items = _typed_dict_items(properties, required_set, emitter)
     lines = [f"{name} = TypedDict(", f"    {name!r},", "    {"]
     if items:
         lines.extend(items)
-    lines.extend(["    },", "    total=False,", ")", ""])
+
+    # If additionalProperties is false and all properties are required, use total=True
+    # Otherwise use total=False for flexibility
+    if closed and len(required_set) == len(properties):
+        lines.extend(["    },", "    total=True,", ")", ""])
+    else:
+        lines.extend(["    },", "    total=False,", ")", ""])
     return lines
 
 
@@ -138,3 +165,61 @@ def _replace_object_with_json_value(type_str: str) -> str:
     import re
 
     return re.sub(r"\bobject\b", "JsonValue", type_str)
+
+
+def _merge_all_of(schemas: list[SchemaObject]) -> SchemaObject | None:
+    """Merge allOf schemas into a single schema.
+
+    This is a simplified merge that combines properties from all object schemas.
+    Only handles object types with properties.
+
+    Args:
+        schemas: List of schemas to merge
+
+    Returns:
+        Merged schema, or None if merging is not possible
+    """
+    merged_properties: dict[str, SchemaObject] = {}
+    merged_required: list[str] = []
+    additional_properties: object | None = None
+
+    for schema in schemas:
+        if not isinstance(schema, dict):
+            return None
+
+        # Skip non-object schemas
+        if schema.get("type") not in ("object", None):
+            return None
+
+        # Merge properties
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            merged_properties.update(properties)
+
+        # Merge required fields
+        required = schema.get("required")
+        if isinstance(required, list):
+            merged_required.extend(required)
+
+        # Track additionalProperties (use most restrictive)
+        schema_additional = schema.get("additionalProperties")
+        if schema_additional is False:
+            additional_properties = False
+        elif additional_properties is None and schema_additional is not None:
+            additional_properties = schema_additional
+
+    if not merged_properties:
+        return None
+
+    result: SchemaObject = {
+        "type": "object",
+        "properties": merged_properties,
+    }
+
+    if merged_required:
+        result["required"] = list(set(merged_required))
+
+    if additional_properties is not None:
+        result["additionalProperties"] = additional_properties
+
+    return result
